@@ -845,7 +845,7 @@ Only provide the JSON array, no other text.`;
                         {(titleQuery || artistQuery) ? (
                             <Pressable
                                 onPress={() => { setTitleQuery(''); setArtistQuery(''); }}
-                                style={{ padding: 8 }}
+                                style={styles.clearSearchBtn}
                             >
                                 <Ionicons name="close-circle" size={16} color="#666" />
                             </Pressable>
@@ -1240,9 +1240,11 @@ const styles = StyleSheet.create({
     searchBarContainer: {
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'center',
         backgroundColor: 'rgba(255,255,255,0.08)',
         borderRadius: 22,
         height: 46,
+        paddingRight: 8,
         borderWidth: 1,
         borderColor: 'rgba(127,19,236,0.25)',
     },
@@ -1251,14 +1253,26 @@ const styles = StyleSheet.create({
         color: '#fff',
         fontSize: 15,
         height: '100%',
-        paddingHorizontal: 10,
+        paddingLeft: 12,
+        paddingRight: 8,
+    },
+    clearSearchBtn: {
+        width: 30,
+        height: 30,
+        borderRadius: 15,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 4,
     },
     searchModePill: {
         backgroundColor: 'rgba(127,19,236,0.28)',
-        borderRadius: 12,
-        paddingHorizontal: 11,
-        paddingVertical: 5,
-        marginLeft: 8,
+        borderRadius: 14,
+        minWidth: 66,
+        height: 30,
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 10,
+        marginLeft: 6,
         borderWidth: 1,
         borderColor: 'rgba(127,19,236,0.45)',
     },

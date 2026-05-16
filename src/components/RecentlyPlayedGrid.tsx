@@ -21,7 +21,8 @@ interface RecentlyPlayedGridProps {
 }
 
 function normalizeArtist(value?: string): string {
-  return value?.trim().toLowerCase() ?? '';
+  const raw = value?.trim().toLowerCase() ?? '';
+  return raw.split(',')[0]?.trim() ?? '';
 }
 
 function getSongDateValue(song: Song): number {
