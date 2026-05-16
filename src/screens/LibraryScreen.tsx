@@ -239,10 +239,15 @@ const LibraryScreen: React.FC<Props> = ({ navigation }) => {
                   usePlayerStore.getState().setPlaylistQueue('library', filteredSongs, index);
                   setCurrentSong(song); 
               } else {
-                  // Fallback: Just play this song (e.g. from Recently Played but not in current filter)
-                  setCurrentSong(song);
-                  usePlayerStore.getState().setInitialSong(song);
-                  usePlayerStore.getState().loadSong(song.id);
+                  // Fallback: song not in current filter — find in full library so queue is always set
+                  const fallbackIndex = songs.findIndex(s => s.id === song.id);
+                  if (fallbackIndex !== -1) {
+                      usePlayerStore.getState().setPlaylistQueue('library', songs, fallbackIndex);
+                  } else {
+                      setCurrentSong(song);
+                      usePlayerStore.getState().setInitialSong(song);
+                      usePlayerStore.getState().loadSong(song.id);
+                  }
               }
           }
         } else {
@@ -254,9 +259,14 @@ const LibraryScreen: React.FC<Props> = ({ navigation }) => {
                    // Set queue and play
                    usePlayerStore.getState().setPlaylistQueue('library', filteredSongs, index);
                } else {
-                   // Fallback
-                   usePlayerStore.getState().setInitialSong(song);
-                   usePlayerStore.getState().loadSong(song.id);
+                   // Fallback: song not in current filter — find in full library so queue is always set
+                   const fallbackIdx = songs.findIndex(s => s.id === song.id);
+                   if (fallbackIdx !== -1) {
+                       usePlayerStore.getState().setPlaylistQueue('library', songs, fallbackIdx);
+                   } else {
+                       usePlayerStore.getState().setInitialSong(song);
+                       usePlayerStore.getState().loadSong(song.id);
+                   }
                }
                navigation.navigate('NowPlaying', { songId: song.id });
           }

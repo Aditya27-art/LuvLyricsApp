@@ -217,10 +217,29 @@ export const usePlayerStore = create<PlayerState>((set, get) => ({
   
   nextInPlaylist: () => {
     const state = get();
-    if (!state.playlistQueue || state.playlistQueue.length === 0) return;
-    
-    const nextIndex = (state.currentQueueIndex + 1) % state.playlistQueue.length;
-    const nextSong = state.playlistQueue[nextIndex];
+
+    // Safety net: queue was never set (e.g. song launched via fallback path or Recently Played)
+    // Rebuild from songsStore so auto-next still works
+    if (!state.playlistQueue || state.playlistQueue.length === 0) {
+      if (state.currentPlaylistId === 'library' && state.currentSongId) {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { useSongsStore } = require('./songsStore') as { useSongsStore: typeof import('./songsStore').useSongsStore };
+        const allSongs: Song[] = useSongsStore.getState().songs;
+        if (allSongs.length > 0) {
+          const idx = allSongs.findIndex((s: Song) => s.id === state.currentSongId);
+          set({ playlistQueue: allSongs, currentQueueIndex: idx !== -1 ? idx : 0 });
+        } else {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
+
+    const freshState = get();
+    if (!freshState.playlistQueue) return;
+    const nextIndex = (freshState.currentQueueIndex + 1) % freshState.playlistQueue.length;
+    const nextSong = freshState.playlistQueue[nextIndex];
     
     set({ 
       currentQueueIndex: nextIndex,
