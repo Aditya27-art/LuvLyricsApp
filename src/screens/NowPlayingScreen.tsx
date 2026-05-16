@@ -191,7 +191,11 @@ const NowPlayingScreen: React.FC<Props> = ({ navigation, route }) => {
       try {
         // 1. Immediate Audio Check (using data from Library/Store)
         const targetSongId = songId; // Lock ID
-        
+
+        // If the store has advanced to a different song (e.g. auto-next),
+        // MiniPlayer owns that transition — don't fight it by reloading the old song.
+        if (currentSong?.id && currentSong.id !== targetSongId) return;
+
         // If we have the song in store but no audioUri, we MUST fetch it.
         // But usually Library passes a valid object.
         let songToPlay = currentSong?.id === targetSongId ? currentSong : null;
@@ -402,9 +406,11 @@ const NowPlayingScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
-  const handleScrub = useCallback((seconds: number) => {
+  const handleScrub = useCallback(async (seconds: number) => {
     if (player) {
-      player.seekTo(seconds);
+      const wasPlaying = usePlayerStore.getState().isPlaying;
+      await player.seekTo(seconds);
+      if (wasPlaying) player.play();
     }
   }, [player]);
 

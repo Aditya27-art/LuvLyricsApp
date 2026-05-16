@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect } from 'react';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { usePlayerStore } from '../store/playerStore';
-import { useSongsStore } from '../store/songsStore';
+import { shouldPreservePlayingStateDuringSeek } from './playerStatusGuard';
 
 const PlayerContext = createContext<any>(null);
 
@@ -64,24 +64,30 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     if (status) {
-      const { currentTime, duration, playing, playbackState } = status;
-      
+      const { currentTime, duration, playing, playbackState, isBuffering, isLoaded, didJustFinish } = status;
+
       const store = usePlayerStore.getState();
-      
+
       // Batch updates if possible, or only update if changed significantly
       store.updateProgress(currentTime, duration);
-      
+
       if (store.isPlaying !== playing) {
-        // Prevent UI flicker: Don't update to "paused" (false) if merely buffering/loading
-        const isBuffering = playbackState === 'buffering' || playbackState === 'loading';
-        if (!playing && isBuffering) {
+        if (shouldPreservePlayingStateDuringSeek({
+          playing,
+          playbackState,
+          isBuffering,
+          isLoaded,
+        })) {
             // Keep existing state (likely "playing") to avoid button flicker
         } else {
             store.setIsPlaying(playing);
         }
       }
 
-      if (playbackState === 'finished') {
+      // Use didJustFinish — playbackState values vary by platform:
+      // Android emits "ended", iOS emits via AVPlayerItemDidPlayToEndTime.
+      // didJustFinish is the only reliable cross-platform signal.
+      if (didJustFinish) {
         if (__DEV__) console.log('[PlayerContext] Song finished, playing next...');
         store.nextInPlaylist();
       }
