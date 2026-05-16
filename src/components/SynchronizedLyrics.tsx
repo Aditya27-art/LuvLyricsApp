@@ -15,7 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-const LYRIC_LINE_HEIGHT = 68; // fallback estimate: fontSize 28 + marginVertical 16*2
+const LYRIC_LINE_HEIGHT = 68; // fontSize 28 + marginVertical 16*2
 import { useSettingsStore } from '../store/settingsStore';
 
 // ------------------------------------------------------------------
