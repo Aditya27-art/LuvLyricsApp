@@ -37,6 +37,7 @@ const NowPlayingScreen: React.FC<Props> = ({ navigation, route }) => {
   const storePosition = usePlayerStore(state => state.position);
   const storeDuration = usePlayerStore(state => state.duration);
   const storePlaying = usePlayerStore(state => state.isPlaying);
+  const setStorePlaying = usePlayerStore(state => state.setIsPlaying);
 
   const toggleLike = useSongsStore(state => state.toggleLike);
   const autoHideControls = useSettingsStore(state => state.autoHideControls);
@@ -375,8 +376,10 @@ const NowPlayingScreen: React.FC<Props> = ({ navigation, route }) => {
 
     // 2. Actual Toggle
     if (storePlaying) {
+      setStorePlaying(false);
       player?.pause(); 
     } else {
+      setStorePlaying(true);
       player?.play();
     }
   };

@@ -43,6 +43,7 @@ export const MiniPlayer: React.FC = () => {
   const setLoadedAudioId = usePlayerStore(state => state.setLoadedAudioId);
   const hideMiniPlayer = usePlayerStore(state => state.hideMiniPlayer);
   const setMiniPlayerHidden = usePlayerStore(state => state.setMiniPlayerHidden);
+  const setStorePlaying = usePlayerStore(state => state.setIsPlaying);
   // Rename to real* to allow optimistic override below
   const realPosition = usePlayerStore(state => state.position);
   const realDuration = usePlayerStore(state => state.duration);
@@ -85,8 +86,10 @@ export const MiniPlayer: React.FC = () => {
 
       // 3. Actual Action
       if (nextState) {
+          setStorePlaying(true);
           player.play();
       } else {
+          setStorePlaying(false);
           player.pause();
       }
   };
@@ -193,6 +196,7 @@ export const MiniPlayer: React.FC = () => {
             isInitialLoad.current = false;
             console.log('[MiniPlayer] Initial load - staying paused');
           } else {
+            setStorePlaying(true);
             player.play();
             console.log('[MiniPlayer] User selected song - auto-playing');
           }
@@ -203,7 +207,7 @@ export const MiniPlayer: React.FC = () => {
     };
     
     syncAudio();
-  }, [currentSong?.id, player, loadedAudioId, setLoadedAudioId, setMiniPlayerHidden]);
+  }, [currentSong?.id, player, loadedAudioId, setLoadedAudioId, setMiniPlayerHidden, setStorePlaying]);
 
   // Auto-close removed: Lyrics persist across songs
   // useEffect(() => { ... }, [currentSong?.id, isIsland]);
