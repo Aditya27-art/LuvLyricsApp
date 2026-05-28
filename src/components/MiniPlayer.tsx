@@ -152,20 +152,21 @@ export const MiniPlayer: React.FC = () => {
   // togglePlay reads live store state so the callback stays stable across renders.
   // A stable callback means PlaybackControls (memo'd) never re-renders just because
   // the play/pause state changed — only when the icon prop itself changes.
+  // Uses playerControls (setTimeout-wrapped) to avoid "accessed on wrong thread" on Android.
   const togglePlay = useCallback((e?: any) => {
       e?.stopPropagation();
-      if (!player) return;
+      if (!currentSong) return;
 
       const nextState = !usePlayerStore.getState().isPlaying;
 
       playButtonScale.value = withSequence(
-          withTiming(0.8, { duration: 100 }),
-          withSpring(1, { damping: 10, stiffness: 200 })
+          withTiming(0.82, { duration: 55 }),
+          withSpring(1, { damping: 18, stiffness: 380 })
       );
 
       setStorePlaying(nextState);
-      if (nextState) player.play(); else player.pause();
-  }, [player, setStorePlaying, playButtonScale]);
+      if (nextState) playerControls.play(); else playerControls.pause();
+  }, [currentSong, setStorePlaying, playButtonScale]);
 
   
   const [expanded, setExpanded] = useState(false);
@@ -246,22 +247,22 @@ export const MiniPlayer: React.FC = () => {
       // If the player doesn't have this audio loaded, load it
       if (loadedAudioId !== currentSong.id && currentSong.audioUri) {
         try {
-          console.log('[MiniPlayer] Syncing audio for:', currentSong.title);
+          if (__DEV__) console.log('[MiniPlayer] Syncing audio for:', currentSong.title);
           await player.replace(currentSong.audioUri);
           setLoadedAudioId(currentSong.id);
-          
+
           // On app startup (first load), don't auto-play
           // On user-initiated song change, auto-play
           if (isInitialLoad.current) {
             isInitialLoad.current = false;
-            console.log('[MiniPlayer] Initial load - staying paused');
+            if (__DEV__) console.log('[MiniPlayer] Initial load - staying paused');
           } else {
             setStorePlaying(true);
             player.play();
-            console.log('[MiniPlayer] User selected song - auto-playing');
+            if (__DEV__) console.log('[MiniPlayer] User selected song - auto-playing');
           }
         } catch (error) {
-          console.error('[MiniPlayer] Failed to sync audio:', error);
+          if (__DEV__) console.error('[MiniPlayer] Failed to sync audio:', error);
         }
       }
     };
@@ -849,7 +850,7 @@ export const MiniPlayer: React.FC = () => {
                 <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    height: 70,
+                    height: '100%',
                     paddingHorizontal: 16,
                     width: '100%'
                 }}>

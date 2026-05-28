@@ -55,6 +55,7 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "@sentry/react-native/expo",
       "expo-sqlite",
       "expo-audio",
       [
