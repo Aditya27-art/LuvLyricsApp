@@ -10,13 +10,10 @@ import androidx.media3.common.MediaMetadata
 import com.lyricflow.app.services.PlaybackService
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 class MainPlayerModule : Module() {
-    private val scope = CoroutineScope(Dispatchers.Main)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun definition() = ModuleDefinition {
@@ -46,31 +43,26 @@ class MainPlayerModule : Module() {
 
         AsyncFunction("load") { uri: String, metadata: Map<String, String> ->
             val context = appContext.reactContext ?: throw Exception("React context not available")
-            
-            // Start foreground service if not already running
+
+            // Start foreground service
             val intent = Intent(context, PlaybackService::class.java)
             context.startForegroundService(intent)
 
-            // Suspend and wait for player to be bound to bridge
-            scope.launch(Dispatchers.Default) {
-                var retries = 0
-                while (PlayerBridge.getPlayer() == null && retries < 100) {
-                    delay(20)
-                    retries++
-                }
+            // Block this thread-pool thread until PlaybackService binds the player (up to 2s)
+            var retries = 0
+            while (PlayerBridge.getPlayer() == null && retries < 100) {
+                Thread.sleep(20)
+                retries++
+            }
 
-                val player = PlayerBridge.getPlayer() ?: return@launch
-                
-                // Construct MediaItem with metadata
+            PlayerBridge.getPlayer()?.let { player ->
                 val mediaMetadata = MediaMetadata.Builder()
                     .setTitle(metadata["title"])
                     .setArtist(metadata["artist"])
                     .setAlbumTitle(metadata["album"])
                     .apply {
                         metadata["artworkUri"]?.let {
-                            if (it.isNotEmpty()) {
-                                setArtworkUri(Uri.parse(it))
-                            }
+                            if (it.isNotEmpty()) setArtworkUri(Uri.parse(it))
                         }
                     }
                     .build()
@@ -80,11 +72,14 @@ class MainPlayerModule : Module() {
                     .setMediaMetadata(mediaMetadata)
                     .build()
 
-                scope.launch(Dispatchers.Main) {
+                // Dispatch to main thread and block until done so JS can call play() immediately after
+                val latch = CountDownLatch(1)
+                mainHandler.post {
                     player.setMediaItem(mediaItem)
                     player.prepare()
-                    player.play()
+                    latch.countDown()
                 }
+                latch.await(5, TimeUnit.SECONDS)
             }
         }
 
