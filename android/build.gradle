@@ -22,3 +22,19 @@ allprojects {
 
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
+
+// Remove the expo library's generated ExpoModulesPackageList.java from its
+// source set so our app-level ExpoModulesPackageList.kt (which includes the
+// 4 local Kotlin modules) is the only compiled version at runtime.
+subprojects { sub ->
+    sub.afterEvaluate {
+        if (sub.name == 'expo') {
+            try {
+                sub.android.sourceSets.main.java.srcDirs =
+                    sub.android.sourceSets.main.java.srcDirs.findAll {
+                        !it.absolutePath.contains("generated${File.separator}expo")
+                    }.toSet()
+            } catch (ignored) {}
+        }
+    }
+}

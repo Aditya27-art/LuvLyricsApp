@@ -14,24 +14,8 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 import com.facebook.react.defaults.DefaultReactNativeHost
 
 import expo.modules.ApplicationLifecycleDispatcher
-import expo.modules.ExpoModulesPackage
 import expo.modules.ReactNativeHostWrapper
-import expo.modules.kotlin.ModulesProvider
-import expo.modules.kotlin.modules.Module
-import com.lyricflow.app.modules.DownloaderModule
-import com.lyricflow.app.modules.LuvsPlayerModule
-import com.lyricflow.app.modules.MainPlayerModule
-import com.lyricflow.app.modules.StartupModule
 import com.lyricflow.app.startup.StartupPreloader
-
-private val localModulesProvider = object : ModulesProvider {
-  override fun getModulesList(): List<Class<out Module>> = listOf(
-    StartupModule::class.java,
-    MainPlayerModule::class.java,
-    LuvsPlayerModule::class.java,
-    DownloaderModule::class.java,
-  )
-}
 
 class MainApplication : Application(), ReactApplication {
 
@@ -40,7 +24,7 @@ class MainApplication : Application(), ReactApplication {
       object : DefaultReactNativeHost(this) {
         override fun getPackages(): List<ReactPackage> =
             PackageList(this).packages.apply {
-              add(ExpoModulesPackage(localModulesProvider))
+              // Local Kotlin modules are registered via ExpoModulesPackageList.kt
             }
 
           override fun getJSMainModuleName(): String = ".expo/.virtual-metro-entry"
