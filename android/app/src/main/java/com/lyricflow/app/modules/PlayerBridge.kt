@@ -64,8 +64,10 @@ object PlayerBridge {
         pollerJob?.cancel()
         pollerJob = pollerScope.launch {
             while (isActive) {
-                val player = activePlayerRef.get() ?: break
-                if (player.isPlaying) emitStatus()
+                withContext(Dispatchers.Main) {
+                    val player = activePlayerRef.get() ?: return@withContext
+                    if (player.isPlaying) emitStatus()
+                }
                 delay(250)
             }
         }

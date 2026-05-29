@@ -3,6 +3,8 @@ package com.lyricflow.app.modules
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import com.lyricflow.app.services.PlaybackService
@@ -15,6 +17,7 @@ import kotlinx.coroutines.launch
 
 class MainPlayerModule : Module() {
     private val scope = CoroutineScope(Dispatchers.Main)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun definition() = ModuleDefinition {
         Name("MainPlayer")
@@ -86,39 +89,38 @@ class MainPlayerModule : Module() {
         }
 
         Function("play") {
-            PlayerBridge.getPlayer()?.play()
+            val player = PlayerBridge.getPlayer() ?: return@Function
+            mainHandler.post { player.play() }
         }
 
         Function("pause") {
-            PlayerBridge.getPlayer()?.pause()
+            val player = PlayerBridge.getPlayer() ?: return@Function
+            mainHandler.post { player.pause() }
         }
 
         Function("seekTo") { seconds: Double ->
-            PlayerBridge.getPlayer()?.seekTo((seconds * 1000.0).toLong())
+            val player = PlayerBridge.getPlayer() ?: return@Function
+            val ms = (seconds * 1000.0).toLong()
+            mainHandler.post { player.seekTo(ms) }
         }
 
         Function("updateMetadata") { metadata: Map<String, String> ->
             val player = PlayerBridge.getPlayer() ?: return@Function
-            val currentItem = player.currentMediaItem ?: return@Function
-            
-            val updatedMetadata = MediaMetadata.Builder()
-                .setTitle(metadata["title"])
-                .setArtist(metadata["artist"])
-                .setAlbumTitle(metadata["album"])
-                .apply {
-                    metadata["artworkUri"]?.let {
-                        if (it.isNotEmpty()) {
-                            setArtworkUri(Uri.parse(it))
+            mainHandler.post {
+                val currentItem = player.currentMediaItem ?: return@post
+                val updatedMetadata = MediaMetadata.Builder()
+                    .setTitle(metadata["title"])
+                    .setArtist(metadata["artist"])
+                    .setAlbumTitle(metadata["album"])
+                    .apply {
+                        metadata["artworkUri"]?.let {
+                            if (it.isNotEmpty()) setArtworkUri(Uri.parse(it))
                         }
                     }
-                }
-                .build()
-
-            val newItem = currentItem.buildUpon()
-                .setMediaMetadata(updatedMetadata)
-                .build()
-
-            player.replaceMediaItem(player.currentMediaItemIndex, newItem)
+                    .build()
+                val newItem = currentItem.buildUpon().setMediaMetadata(updatedMetadata).build()
+                player.replaceMediaItem(player.currentMediaItemIndex, newItem)
+            }
         }
 
         Function("destroy") {
