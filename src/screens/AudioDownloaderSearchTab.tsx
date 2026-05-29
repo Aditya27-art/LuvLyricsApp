@@ -53,7 +53,6 @@ const ScrollableHeader: React.FC<ScrollableHeaderProps> = memo(({
         >
             <Ionicons name={selectionMode ? "checkmark-circle" : "checkmark-circle-outline"} size={17} color={selectionMode ? '#fff' : colors.primary} />
         </Pressable>
-        </Pressable>
 
         <ScrollView
             horizontal
@@ -119,6 +118,194 @@ const BulkHeader: React.FC<BulkHeaderProps> = memo((props) => (
 // Isolated: no props — reads from stores directly, never re-renders on queue progress
 export const AudioDownloaderSearchTab = memo(() => {
     const colors = useThemeColors();
+
+    // --- Store ---
+    const { tabs, activeTabId, setActiveTab, closeTab, createTab, updateTab, clearAllSelections, getSelectedSongs } = useDownloaderTabStore();
+    const activeTab = tabs.find(t => t.id === activeTabId) ?? tabs[0];
+
+    // --- Derived from activeTab ---
+    const titleQuery = activeTab.titleQuery;
+    const artistQuery = activeTab.artistQuery;
+    const setTitleQuery = useCallback((text: string) => updateTab(activeTabId, { titleQuery: text }), [activeTabId, updateTab]);
+    const setArtistQuery = useCallback((text: string) => updateTab(activeTabId, { artistQuery: text }), [activeTabId, updateTab]);
+    const bulkPlaylistName = activeTab.bulkPlaylistName;
+    const setBulkPlaylistName = useCallback((name: string) => updateTab(activeTabId, { bulkPlaylistName: name }), [activeTabId, updateTab]);
+    const selectedCount = (activeTab.selectedSongs ?? []).length;
+    const readyBulkCount = (activeTab.bulkItems ?? []).filter(i => i.result !== null).length;
+
+    // --- Local state ---
+    const [searchMode, setSearchMode] = useState<'title' | 'artist'>('title');
+    const [selectionMode, setSelectionMode] = useState(false);
+    const [jsonInput, setJsonInput] = useState('');
+    const [remixSectionExpanded, setRemixSectionExpanded] = useState(false);
+    const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(null);
+    const [swapModalVisible, setSwapModalVisible] = useState(false);
+    const [swapTargetItem, setSwapTargetItem] = useState<BulkItem | null>(null);
+    const [playlistModalVisible, setPlaylistModalVisible] = useState(false);
+    const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'error' } | null>(null);
+    const [cyclingItemId, setCyclingItemId] = useState<string | null>(null);
+
+    // --- Refs ---
+    const previewSoundRef = useRef<Audio.Sound | null>(null);
+    const downloadContextRef = useRef<'single' | 'selected' | 'bulk'>('single');
+    const pendingSingleRef = useRef<UnifiedSong | null>(null);
+
+    // --- Other stores ---
+    const existingSongs = useSongsStore(state => state.songs);
+    const { addToQueue } = useDownloadQueueStore();
+
+    // --- Handlers ---
+    const handleSearch = useCallback(async () => {
+        const query = searchMode === 'title' ? titleQuery.trim() : artistQuery.trim();
+        if (!query) return;
+        updateTab(activeTabId, { isSearching: true, status: 'Searching...', results: [], remixResults: [] });
+        try {
+            const results = await MultiSourceSearchService.searchMusic(
+                query,
+                searchMode === 'artist' ? query : undefined,
+                (status) => updateTab(activeTabId, { status })
+            );
+            updateTab(activeTabId, { isSearching: false, results, status: '' });
+        } catch {
+            updateTab(activeTabId, { isSearching: false, status: 'Search failed' });
+        }
+    }, [searchMode, titleQuery, artistQuery, activeTabId, updateTab]);
+
+    const handlePreviewToggle = useCallback(async (song: UnifiedSong) => {
+        if (playingPreviewId === song.id) {
+            await previewSoundRef.current?.stopAsync().catch(() => {});
+            await previewSoundRef.current?.unloadAsync().catch(() => {});
+            previewSoundRef.current = null;
+            setPlayingPreviewId(null);
+            return;
+        }
+        if (previewSoundRef.current) {
+            await previewSoundRef.current.stopAsync().catch(() => {});
+            await previewSoundRef.current.unloadAsync().catch(() => {});
+            previewSoundRef.current = null;
+        }
+        const url = song.streamUrl || song.downloadUrl;
+        if (!url) return;
+        try {
+            const { sound } = await Audio.Sound.createAsync({ uri: url }, { shouldPlay: true });
+            previewSoundRef.current = sound;
+            setPlayingPreviewId(song.id);
+            sound.setOnPlaybackStatusUpdate(s => {
+                if (s.isLoaded && s.didJustFinish) { setPlayingPreviewId(null); previewSoundRef.current = null; }
+            });
+        } catch {}
+    }, [playingPreviewId]);
+
+    const handlePress = useCallback((item: UnifiedSong) => {
+        if (selectionMode || (activeTab.selectedSongs ?? []).length > 0) {
+            useDownloaderTabStore.getState().toggleSelection(activeTabId, item.id);
+        } else {
+            downloadContextRef.current = 'single';
+            pendingSingleRef.current = item;
+            setPlaylistModalVisible(true);
+        }
+    }, [selectionMode, activeTab.selectedSongs, activeTabId]);
+
+    const handleLongPress = useCallback((item: UnifiedSong) => {
+        setSelectionMode(true);
+        useDownloaderTabStore.getState().toggleSelection(activeTabId, item.id);
+    }, [activeTabId]);
+
+    const handleBatchDownload = useCallback(() => {
+        if (selectedCount === 0) return;
+        downloadContextRef.current = 'selected';
+        setPlaylistModalVisible(true);
+    }, [selectedCount]);
+
+    const handleBulkDownloadAction = useCallback(() => {
+        if (readyBulkCount === 0) return;
+        downloadContextRef.current = 'bulk';
+        setPlaylistModalVisible(true);
+    }, [readyBulkCount]);
+
+    const confirmDownload = useCallback((playlistId?: string, _playlistName?: string) => {
+        setPlaylistModalVisible(false);
+        const ctx = downloadContextRef.current;
+        if (ctx === 'selected') {
+            const selected = getSelectedSongs();
+            addToQueue(selected.map(s => s.song), playlistId);
+            clearAllSelections();
+            setSelectionMode(false);
+        } else if (ctx === 'single' && pendingSingleRef.current) {
+            addToQueue([pendingSingleRef.current], playlistId);
+            pendingSingleRef.current = null;
+        } else if (ctx === 'bulk') {
+            const songs = (activeTab.bulkItems ?? []).filter(i => i.result !== null).map(i => i.result!);
+            addToQueue(songs, playlistId);
+        }
+    }, [getSelectedSongs, addToQueue, clearAllSelections, activeTab.bulkItems]);
+
+    const openArtistTab = useCallback((artist: string) => { createTab(artist); }, [createTab]);
+
+    const handleSwap = useCallback((item: BulkItem) => {
+        setSwapTargetItem(item);
+        setSwapModalVisible(true);
+    }, []);
+
+    const onSwapConfirm = useCallback((song: UnifiedSong) => {
+        if (!swapTargetItem) return;
+        updateTab(activeTabId, {
+            bulkItems: (activeTab.bulkItems ?? []).map(i =>
+                i.id === swapTargetItem.id ? { ...i, result: song, status: 'found' as const } : i
+            )
+        });
+        setSwapModalVisible(false);
+        setSwapTargetItem(null);
+    }, [swapTargetItem, activeTab.bulkItems, activeTabId, updateTab]);
+
+    const handleCycleNextCandidate = useCallback(async (item: BulkItem) => {
+        setCyclingItemId(item.id);
+        try {
+            const results = await MultiSourceSearchService.searchMusic(`${item.query.artist} ${item.query.title}`);
+            const next = results.find(r => r.id !== item.result?.id) ?? results[0];
+            if (next) {
+                const fresh = () => useDownloaderTabStore.getState().tabs.find(t => t.id === activeTabId)?.bulkItems ?? [];
+                updateTab(activeTabId, { bulkItems: fresh().map(i => i.id === item.id ? { ...i, result: next, status: 'found' as const } : i) });
+            }
+        } catch {}
+        setCyclingItemId(null);
+    }, [activeTabId, updateTab]);
+
+    const parseAndSearchBulk = useCallback(async () => {
+        try {
+            const parsed: { title: string; artist: string }[] = JSON.parse(jsonInput);
+            if (!Array.isArray(parsed)) throw new Error();
+            const items: BulkItem[] = parsed.map((entry, i) => ({
+                id: `bulk_${Date.now()}_${i}`,
+                query: { title: entry.title ?? '', artist: entry.artist ?? '' },
+                result: null,
+                status: 'pending' as const,
+                originalIndex: i,
+            }));
+            updateTab(activeTabId, { mode: 'bulk', bulkItems: items, isSearching: true });
+            for (const item of items) {
+                const fresh = () => useDownloaderTabStore.getState().tabs.find(t => t.id === activeTabId)?.bulkItems ?? [];
+                updateTab(activeTabId, { bulkItems: fresh().map(i => i.id === item.id ? { ...i, status: 'searching' as const } : i) });
+                try {
+                    const results = await MultiSourceSearchService.searchMusic(`${item.query.artist} ${item.query.title}`);
+                    const best = results[0] ?? null;
+                    const alreadyIn = best && existingSongs.some(s => stringSimilarity.compareTwoStrings(s.title, best.title) > 0.85);
+                    const status = best ? (alreadyIn ? 'already_present' as const : 'found' as const) : 'not_found' as const;
+                    updateTab(activeTabId, { bulkItems: fresh().map(i => i.id === item.id ? { ...i, result: best, status } : i) });
+                } catch {
+                    updateTab(activeTabId, { bulkItems: fresh().map(i => i.id === item.id ? { ...i, status: 'not_found' as const } : i) });
+                }
+            }
+            updateTab(activeTabId, { isSearching: false });
+        } catch {
+            setToast({ visible: true, message: 'Invalid JSON — expected [{"title":"...","artist":"..."}]', type: 'error' });
+        }
+    }, [jsonInput, activeTabId, existingSongs, updateTab]);
+
+    const copyPromptToClipboard = useCallback(async () => {
+        await Clipboard.setStringAsync('Return a JSON array: [{"title": "Song Name", "artist": "Artist Name"}]');
+        setToast({ visible: true, message: 'Prompt copied!', type: 'success' });
+    }, []);
 
     const sharedHeaderProps = {
         tabs, activeTabId, setActiveTab, closeTab, createTab,

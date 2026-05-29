@@ -78,6 +78,59 @@ const BottomSheet: React.FC<BottomSheetProps> = ({ visible, title, onClose, chil
   const isDark = useIsDark();
   const colors = useThemeColors();
   const dividerColor = useSettingsDividerColor();
+
+  const closeOnce = React.useCallback(() => {
+    if (isClosing.current) return;
+    isClosing.current = true;
+    onClose();
+  }, [onClose]);
+
+  const panResponder = React.useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 8,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) panY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 80 || g.vy > 0.8) {
+          panY.setValue(0);
+          closeOnce();
+        } else {
+          Animated.spring(panY, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 300 }).start();
+        }
+      },
+    }),
+  ).current;
+
+  React.useEffect(() => {
+    if (visible) {
+      isClosing.current = false;
+      panY.setValue(0);
+      setModalVisible(true);
+      Animated.parallel([
+        Animated.timing(overlayOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true, damping: 32, stiffness: 220, mass: 1.1 }),
+      ]).start();
+    } else {
+      Animated.parallel([
+        Animated.timing(overlayOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+        Animated.timing(sheetTranslateY, { toValue: 800, duration: 220, useNativeDriver: true }),
+      ]).start(() => { setModalVisible(false); panY.setValue(0); });
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={modalVisible} transparent animationType="none" onRequestClose={closeOnce} statusBarTranslucent>
+      <Animated.View style={[StyleSheet.absoluteFill, bs.backdrop, { opacity: overlayOpacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={closeOnce} />
+      </Animated.View>
+      <Animated.View style={[bs.sheet, { backgroundColor: isDark ? '#1C1C1E' : colors.card, transform: [{ translateY: Animated.add(sheetTranslateY, panY) }] }]} {...panResponder.panHandlers}>
+        <View style={bs.handle} />
+        <View style={[bs.header, { borderBottomColor: dividerColor }]}>
+          <Text style={[bs.title, { color: colors.textPrimary }]}>{title}</Text>
+          <Pressable onPress={onClose} hitSlop={12}>
+            <Ionicons name="close" size={22} color={colors.textSecondary} />
           </Pressable>
         </View>
         <ScrollView bounces={false} keyboardShouldPersistTaps="handled" contentContainerStyle={bs.content}>
@@ -229,6 +282,30 @@ const SettingsRowSwitch: React.FC<SettingsRowSwitchProps> = ({ icon, label, valu
       <Text style={[styles.settingsLabel, { color: colors.textPrimary }]}>{label}</Text>
       <Switch value={value} onValueChange={onToggle} trackColor={{ false: '#39393D', true: '#34C759' }} thumbColor="#fff" />
     </View>
+  );
+};
+
+interface SettingsRowProps {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value?: string;
+  onPress: () => void;
+}
+
+const SettingsRow: React.FC<SettingsRowProps> = ({ icon, label, value, onPress }) => {
+  const dividerColor = useSettingsDividerColor();
+  const colors = useThemeColors();
+  return (
+    <Pressable style={[styles.settingsRow, { borderBottomColor: dividerColor }]} onPress={onPress}>
+      <Ionicons name={icon} size={22} color={colors.textSecondary} />
+      <Text style={[styles.settingsLabel, { color: colors.textPrimary }]}>{label}</Text>
+      {value ? (
+        <View style={styles.settingsValue}>
+          <Text style={[styles.settingsValueText, { color: colors.textSecondary }]}>{value}</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+        </View>
+      ) : null}
+    </Pressable>
   );
 };
 
@@ -384,6 +461,245 @@ const SettingsScreen: React.FC<Props> = () => {
   const quickPins = useSettingsStore(state => state.quickPins);
   const setQuickPins = useSettingsStore(state => state.setQuickPins);
   const [pinPickerSlot, setPinPickerSlot] = React.useState<number | null>(null);
+
+  const [alertConfig, setAlertConfig] = React.useState<{
+    visible: boolean; title: string; message: string;
+    buttons: { text: string; onPress: () => void; style?: 'default' | 'cancel' | 'destructive' }[];
+  }>({ visible: false, title: '', message: '', buttons: [] });
+
+  const handleEditAvatar = React.useCallback(async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission needed', 'Allow photo library access to change your profile picture.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1] as [number, number],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets[0]) {
+      setProfileImage(result.assets[0].uri);
+    }
+  }, []);
+
+  const handleEditName = React.useCallback(() => {
+    setTempName(profileName);
+    setEditNameVisible(true);
+  }, [profileName]);
+
+  const handleSaveName = React.useCallback(() => {
+    if (tempName.trim()) setProfileName(tempName.trim());
+    setEditNameVisible(false);
+  }, [tempName]);
+
+  const handleExport = React.useCallback(async () => {
+    try {
+      const filePath = await exportAllSongs();
+      await shareExportedFile(filePath);
+    } catch (e) {
+      Alert.alert('Export failed', e instanceof Error ? e.message : 'Unknown error');
+    }
+  }, [songs]);
+
+  const handleImport = React.useCallback(async () => {
+    try {
+      setIsImporting(true);
+      const imported = await importSongsFromJson();
+      if (imported > 0) {
+        await fetchSongs();
+        Alert.alert('Import complete', `${imported} song(s) imported successfully.`);
+      }
+    } catch (e) {
+      Alert.alert('Import failed', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setIsImporting(false);
+    }
+  }, [fetchSongs]);
+
+  const handleImportLocalAudio = React.useCallback(async () => {
+    try {
+      const files = await scanAudioFiles();
+      setAvailableAudioFiles(files);
+      setSelectedFiles(new Set(files.map((f: any) => f.uri)));
+      setSelectionModalVisible(true);
+    } catch (e) {
+      Alert.alert('Scan failed', e instanceof Error ? e.message : 'Unknown error');
+    }
+  }, []);
+
+  const handleCloseSelectionModal = React.useCallback(() => {
+    setSelectionModalVisible(false);
+    setSelectedFiles(new Set());
+    setSearchQuery('');
+  }, []);
+
+  const toggleSelectAll = React.useCallback(() => {
+    if (selectedFiles.size === availableAudioFiles.length) {
+      setSelectedFiles(new Set());
+    } else {
+      setSelectedFiles(new Set(availableAudioFiles.map((f: any) => f.uri)));
+    }
+  }, [selectedFiles.size, availableAudioFiles]);
+
+  const toggleFileSelection = React.useCallback((uri: string) => {
+    setSelectedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(uri)) next.delete(uri); else next.add(uri);
+      return next;
+    });
+  }, []);
+
+  const filteredAudioFiles = React.useMemo(() =>
+    searchQuery.trim() === ''
+      ? availableAudioFiles
+      : availableAudioFiles.filter((f: any) =>
+          (f.filename || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+          (f.artist || '').toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+    [availableAudioFiles, searchQuery]
+  );
+
+  const handleImportSelected = React.useCallback(async () => {
+    const filesToImport = availableAudioFiles.filter((f: any) => selectedFiles.has(f.uri));
+    setSelectionModalVisible(false);
+    let count = 0;
+    for (const file of filesToImport) {
+      try {
+        const song = await convertAudioFileToSong(file);
+        if (song) { await addSong(song); count++; }
+      } catch {}
+    }
+    if (count > 0) {
+      await fetchSongs();
+      Alert.alert('Import complete', `${count} song(s) added to library.`);
+    }
+    setSelectedFiles(new Set());
+  }, [availableAudioFiles, selectedFiles, addSong, fetchSongs]);
+
+  const handlePairFromPayload = React.useCallback(async () => {
+    try {
+      setPairingBusy(true);
+      const payload = JSON.parse(pairingPayloadText);
+      await trustedPairingService.saveTrustedDesktop(payload);
+      const desktops = await trustedPairingService.listTrustedDesktops();
+      setTrustedDesktops(desktops);
+      setPairingModalVisible(false);
+      setPairingPayloadText('');
+    } catch (e) {
+      Alert.alert('Pairing failed', e instanceof Error ? e.message : 'Invalid payload');
+    } finally {
+      setPairingBusy(false);
+    }
+  }, [pairingPayloadText]);
+
+  const cardBg = isDark ? 'rgba(255,255,255,0.06)' : colors.card;
+  const cardBorder = isDark ? 'rgba(255,255,255,0.08)' : colors.border;
+
+  return (
+    <View style={[styles.container, { backgroundColor: isDark ? '#000' : colors.background }]}>
+      {isDark && applyThemeToOtherPages && (
+        <View style={StyleSheet.absoluteFill}>
+          <AuroraHeader palette="settings" colors={activeThemeColors} imageUri={activeImageUri} isSolid={isSolidBg} />
+        </View>
+      )}
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+
+          {/* ── Screen title ── */}
+          <Text style={[styles.screenTitle, { color: colors.textPrimary }]}>Settings</Text>
+
+          {/* ── Profile card ── */}
+          <View style={[styles.profileCard, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+            {/* Avatar */}
+            <Pressable
+              style={[styles.avatar, {
+                backgroundColor: isDark ? 'rgba(6,21,43,1)' : colors.cardHover,
+                borderColor: cardBorder,
+              }]}
+              onPress={handleEditAvatar}
+            >
+              {profileImage
+                ? <Image source={{ uri: profileImage }} style={styles.avatarImage} />
+                : <Ionicons name="person" size={34} color={isDark ? 'rgba(255,255,255,0.4)' : colors.textMuted} />}
+              <View style={[styles.editBadge, { borderColor: isDark ? '#000' : colors.background }]}>
+                <Ionicons name="camera" size={12} color="#000" />
+              </View>
+            </Pressable>
+
+            {/* Name + stats */}
+            <View style={styles.profileRight}>
+              <Pressable onPress={handleEditName} style={styles.nameRow}>
+                <Text style={[styles.profileName, { color: colors.textPrimary }]} numberOfLines={1}>{profileName}</Text>
+                <Ionicons name="pencil-outline" size={14} color={colors.textMuted} style={{ marginLeft: 6 }} />
+              </Pressable>
+              <Text style={[styles.profileSub, { color: colors.textMuted }]}>Offline · Privacy First</Text>
+
+              {/* Stats strip */}
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{songs.length}</Text>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>Songs</Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: cardBorder }]} />
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{likedCount}</Text>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>Liked</Text>
+                </View>
+                <View style={[styles.statDivider, { backgroundColor: cardBorder }]} />
+                <View style={styles.statItem}>
+                  <Text style={[styles.statNumber, { color: colors.textPrimary }]}>{hiddenSongs.length}</Text>
+                  <Text style={[styles.statLabel, { color: colors.textMuted }]}>Hidden</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+
+          {/* ── Quick pins ── */}
+          <View style={styles.quickActions}>
+            {(quickPins as string[]).map((pinId, slotIndex) => {
+              const item = PINNABLE_ITEMS[pinId as PinId];
+              if (!item) return null;
+              return (
+                <Pressable
+                  key={slotIndex}
+                  style={[styles.quickAction, { backgroundColor: cardBg, borderColor: cardBorder }]}
+                  onPress={() => {
+                    if (pinId === 'export') handleExport();
+                    else if (pinId === 'import') handleImport();
+                    else if (pinId === 'scan') handleImportLocalAudio();
+                    else setActiveSheet(pinId);
+                  }}
+                  onLongPress={() => setPinPickerSlot(slotIndex)}
+                  delayLongPress={400}
+                >
+                  <View style={[styles.quickIcon, { backgroundColor: item.iconColor + '22' }]}>
+                    <Ionicons name={item.icon} size={20} color={item.iconColor} />
+                  </View>
+                  <Text style={[styles.quickActionText, { color: colors.textPrimary }]}>{item.label}</Text>
+                  <View style={styles.quickEditHint}>
+                    <Ionicons name="ellipsis-horizontal" size={12} color={colors.textMuted} />
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Text style={[styles.quickHint, { color: colors.textMuted }]}>Hold any shortcut to customise</Text>
+
+          {/* ── Section: Personalization ── */}
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>PERSONALIZATION</Text>
+          <View style={[styles.menuGroup, { backgroundColor: cardBg, borderColor: cardBorder }]}>
+            <MenuRow icon="moon-outline" iconColor="#A78BFA" label="Appearance" onPress={() => setActiveSheet('appearance')} />
+            <MenuRow icon="play-circle-outline" iconColor="#34C759" label="Playback" onPress={() => setActiveSheet('playback')} />
+            <MenuRow icon="radio-outline" iconColor="#FF6B6B" label="Mini Player" onPress={() => setActiveSheet('miniplayer')} />
+            <MenuRow icon="folder-open-outline" iconColor="#FF9F0A" label="Library" onPress={() => setActiveSheet('library')} />
+            <MenuRow icon="globe-outline" iconColor="#30D158" label="Discovery" onPress={() => setActiveSheet('discovery')} isLast />
+          </View>
+
+          {/* ── Section: System ── */}
+          <Text style={[styles.sectionLabel, { color: colors.textMuted }]}>SYSTEM</Text>
+          <View style={[styles.menuGroup, { backgroundColor: cardBg, borderColor: cardBorder }]}>
             <MenuRow
               icon="desktop-outline" iconColor="#0A84FF" label="Desktop Connect"
               badge={desktopConnectEnabled ? 'On' : 'Off'}
@@ -486,6 +802,21 @@ const SettingsScreen: React.FC<Props> = () => {
         <SettingsRowSwitch icon="musical-note-outline" label="Play in Mini Player Only" value={settings.playInMiniPlayerOnly} onToggle={settings.setPlayInMiniPlayerOnly} />
       </BottomSheet>
 
+        <SettingsRow
+          icon="color-palette-outline" label="Background Theme"
+          value={
+            settings.libraryBackgroundMode === 'daily' ? 'Most Played Yesterday' :
+            settings.libraryBackgroundMode === 'current' ? 'Current Song' :
+            settings.libraryBackgroundMode === 'black' ? 'Pure Black' :
+            settings.libraryBackgroundMode === 'grey' ? 'Spotify Grey' :
+            settings.libraryBackgroundMode === 'theme-blue' ? 'LuvLyrics Blue' :
+            settings.libraryBackgroundMode === 'purest-black' ? 'Purest Black' :
+            settings.libraryBackgroundMode === 'theme-subtle' ? 'Subtle Dark' : 'Aurora'
+          }
+          onPress={() => {
+            const modes: ('daily' | 'current' | 'aurora' | 'black' | 'grey' | 'theme-blue' | 'purest-black' | 'theme-subtle')[] = [
+              'daily', 'current', 'aurora', 'black', 'grey', 'theme-blue', 'purest-black', 'theme-subtle'
+            ];
             const next = modes[(modes.indexOf(settings.libraryBackgroundMode) + 1) % modes.length];
             settings.setLibraryBackgroundMode(next);
           }}
