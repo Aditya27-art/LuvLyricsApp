@@ -3,8 +3,6 @@ package com.lyricflow.app.modules
 import android.database.sqlite.SQLiteDatabase
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -16,34 +14,25 @@ class SearchModule : Module() {
         // Creates the FTS5 virtual table if it doesn't exist and rebuilds its index.
         // Idempotent — safe to call on every app launch.
         AsyncFunction("ensureIndex") {
-            withContext(Dispatchers.IO) {
-                openDb()?.use { db ->
-                    db.execSQL(
-                        """CREATE VIRTUAL TABLE IF NOT EXISTS songs_fts USING fts5(
-                            id UNINDEXED,
-                            title,
-                            artist,
-                            album,
-                            content=songs,
-                            content_rowid=rowid
-                        )"""
-                    )
-                    // Rebuild syncs the FTS index with the current songs table contents.
-                    db.execSQL("INSERT INTO songs_fts(songs_fts) VALUES('rebuild')")
-                }
+            openDb()?.use { db ->
+                db.execSQL(
+                    """CREATE VIRTUAL TABLE IF NOT EXISTS songs_fts USING fts5(
+                        id UNINDEXED,
+                        title,
+                        artist,
+                        album,
+                        content=songs,
+                        content_rowid=rowid
+                    )"""
+                )
+                db.execSQL("INSERT INTO songs_fts(songs_fts) VALUES('rebuild')")
             }
         }
 
-        // Returns a JSON string — array of song objects matching the query.
-        // Append '*' to the query before calling for prefix matching.
         AsyncFunction("search") { query: String ->
-            withContext(Dispatchers.IO) {
-                if (query.isBlank()) return@withContext "[]"
-                val db = openDb() ?: return@withContext "[]"
-                db.use {
-                    buildResults(it, query)
-                }
-            }
+            if (query.isBlank()) return@AsyncFunction "[]"
+            val db = openDb() ?: return@AsyncFunction "[]"
+            db.use { buildResults(it, query) }
         }
     }
 

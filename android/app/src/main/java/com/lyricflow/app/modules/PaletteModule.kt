@@ -7,8 +7,6 @@ import android.util.LruCache
 import androidx.palette.graphics.Palette
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class PaletteModule : Module() {
@@ -27,16 +25,14 @@ class PaletteModule : Module() {
 
             cache.get(imageUri)?.let { return@AsyncFunction it }
 
-            withContext(Dispatchers.IO) {
-                try {
-                    val bitmap = decodeBitmap(imageUri) ?: return@withContext null
-                    val palette = Palette.from(bitmap).generate()
-                    val json = buildJson(palette)
-                    cache.put(imageUri, json)
-                    json
-                } catch (_: Exception) {
-                    null
-                }
+            try {
+                val bitmap = decodeBitmap(imageUri) ?: return@AsyncFunction null
+                val palette = Palette.from(bitmap).generate()
+                val json = buildJson(palette)
+                cache.put(imageUri, json)
+                json
+            } catch (_: Exception) {
+                null
             }
         }
     }
