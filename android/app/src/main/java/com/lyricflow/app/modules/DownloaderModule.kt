@@ -59,12 +59,17 @@ class DownloaderModule : Module() {
                             workInfo.outputData.getString("coverUri")
                         } else null
 
+                        val errorMsg = if (workInfo.state == WorkInfo.State.FAILED) {
+                            workInfo.outputData.getString("error")
+                        } else null
+
                         sendEvent("onDownloadProgress", mapOf(
                             "id" to id,
                             "progress" to progress,
                             "status" to status,
                             "audioUri" to audioUri,
-                            "coverUri" to coverUri
+                            "coverUri" to coverUri,
+                            "error" to errorMsg
                         ))
 
                         if (workInfo.state.isFinished) {

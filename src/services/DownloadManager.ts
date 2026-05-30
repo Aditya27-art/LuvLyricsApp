@@ -126,7 +126,8 @@ class DownloadManager {
                         resolve(newSong);
                     } else if (status === 'failed' || status === 'cancelled') {
                         cleanup();
-                        reject(new Error(`Download failed with status: ${status}`));
+                        const detail = event.error ? ` — ${event.error}` : '';
+                        reject(new Error(`Download failed with status: ${status}${detail}`));
                     }
                 });
 

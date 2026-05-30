@@ -86,31 +86,54 @@ class DownloadWorker(context: Context, params: WorkerParameters) : CoroutineWork
 
     private suspend fun downloadFile(urlStr: String, outputFile: File, progressStart: Float, progressRange: Float) {
         withContext(Dispatchers.IO) {
-            val url = URL(urlStr)
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 15000
-            conn.readTimeout = 15000
-            conn.connect()
+            var currentUrl = urlStr
+            var conn: HttpURLConnection
+            var redirects = 0
+            while (true) {
+                val url = URL(currentUrl)
+                conn = url.openConnection() as HttpURLConnection
+                conn.connectTimeout = 30000
+                conn.readTimeout = 60000
+                conn.instanceFollowRedirects = false
+                conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 12; SM-M315F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                conn.setRequestProperty("Accept", "*/*")
+                conn.connect()
 
-            if (conn.responseCode !in 200..299) {
-                throw Exception("Server returned code ${conn.responseCode}")
+                val code = conn.responseCode
+                if (code in 300..399) {
+                    val location = conn.getHeaderField("Location")
+                        ?: throw Exception("Redirect $code with no Location header")
+                    conn.disconnect()
+                    currentUrl = if (location.startsWith("http")) location else URL(URL(currentUrl), location).toString()
+                    if (++redirects > 10) throw Exception("Too many redirects")
+                    continue
+                }
+                if (code !in 200..299) {
+                    conn.disconnect()
+                    throw Exception("Server returned code $code for URL: ${currentUrl.take(120)}")
+                }
+                break
             }
 
-            val fileLength = conn.contentLength
-            conn.inputStream.use { input ->
-                FileOutputStream(outputFile).use { output ->
-                    val data = ByteArray(8192)
-                    var total: Long = 0
-                    var count: Int
-                    while (input.read(data).also { count = it } != -1) {
-                        total += count
-                        output.write(data, 0, count)
-                        if (fileLength > 0) {
-                            val progress = progressStart + (total.toFloat() / fileLength.toFloat()) * progressRange
-                            setProgress(workDataOf("progress" to progress, "status" to "running"))
+            try {
+                val fileLength = conn.contentLength
+                conn.inputStream.use { input ->
+                    FileOutputStream(outputFile).use { output ->
+                        val data = ByteArray(16384)
+                        var total: Long = 0
+                        var count: Int
+                        while (input.read(data).also { count = it } != -1) {
+                            total += count
+                            output.write(data, 0, count)
+                            if (fileLength > 0) {
+                                val progress = progressStart + (total.toFloat() / fileLength.toFloat()) * progressRange
+                                setProgress(workDataOf("progress" to progress, "status" to "running"))
+                            }
                         }
                     }
                 }
+            } finally {
+                conn.disconnect()
             }
         }
     }
